@@ -22,16 +22,6 @@ To use the electronic load you need:
 6. An external accurate current meter or laboratory power supply for calibration.
 How the Project Works
 The electronic load uses a power MOSFET as a controllable load.
-The current path is approximately:
-DC INPUT +
-    |
-    |
- MOSFET
-    |
-    |
- SHUNT
-    |
-DC INPUT -
 
 The voltage across the shunt resistor is proportional to the load current.
 The current-sense scale is approximately:
