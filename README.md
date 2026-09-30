@@ -1,2 +1,7 @@
-# DC-load-Makload5000
-This project is a computer-controlled variable DC electronic load designed for testing power supplies, batteries, DC converters, and other low-voltage DC power sources.
+## Software and Documentation
+
+All software, firmware, and project documentation can be found here:
+
+[DC-load-Makload5000](https://github.com/bodanmakerpro-max/DC-load-Makload5000/tree/main)
+
+The repository contains the Arduino firmware and the computer control dashboard required to operate and calibrate the electronic load.
