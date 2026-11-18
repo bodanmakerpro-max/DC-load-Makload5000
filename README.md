@@ -7,7 +7,7 @@ Makload5000 is a variable DC electronic load for testing low-voltage DC power su
 The load can now be controlled in two ways:
 
 1. From the existing HTML computer dashboard through USB.
-2. Directly from the device using a 16x2 LCD and rotary encoder.
+2. Directly from the device using the small 0.96-inch SSD1306 128x64 OLED and rotary encoder.
 
 The HTML dashboard is still supported and has not been removed.
 
@@ -72,48 +72,42 @@ The LM358 output drives the MOSFET gate through a 100 Ω resistor:
 LM358 output ---- 100Ω ---- MOSFET gate
 ~~~
 
-## 16x2 LCD wiring
+## 0.96-inch OLED wiring
 
-This version uses the same type of normal 16x2 parallel LCD used in the earlier RFID project. It is not an I2C LCD.
+The standalone display is the same small OLED type used in the RFID/ESP32 project:
 
-~~~text
-LCD pin       Pro Micro
--------------------------
-VSS           GND
-VDD           5V
-VO            middle pin of 10k contrast potentiometer
-RS            D4
-RW            GND
-E             D5
-D4            D6
-D5            D7
-D6            D8
-D7            D10
-A / LED+      5V
-K / LED-      GND
-~~~
+- **SSD1306**
+- **128x64 pixels**
+- **I2C**
+- Usually address **0x3C**
+- 4 pins: **GND, VCC, SCL, SDA**
 
-For the contrast potentiometer:
+On a 5 V Pro Micro:
 
 ~~~text
-5V ---- outer pin
-GND --- outer pin
-VO ---- middle pin
+OLED pin      Pro Micro
+-----------------------
+GND           GND
+VCC           5V
+SDA           D2
+SCL           D3
 ~~~
 
-If your LCD module does not already contain a backlight resistor, add a suitable series resistor for the backlight.
+D2 and D3 are the Pro Micro hardware I2C pins.
+
+The firmware uses the **U8g2** library and the SSD1306 128x64 hardware-I2C driver.
 
 ## Rotary encoder wiring
 
-For a KY-040 style rotary encoder:
+Because D2 and D3 are now used by the OLED, the encoder uses D4, D5 and D6:
 
 ~~~text
 Encoder pin   Pro Micro
--------------------------
-CLK           D2
-DT            D3
-SW            D15
-+ / VCC       5V
+-----------------------
+CLK           D4
+DT            D5
+SW            D6
+VCC           5V
 GND           GND
 ~~~
 
@@ -125,11 +119,14 @@ You do not need to keep a computer connected during normal use after calibration
 
 ### Home screen
 
-The LCD displays something like:
+The OLED home screen shows the actual current, selected current and load state. It looks roughly like:
 
 ~~~text
-DRAW 1.25A
-SET  1.50A RUN
+MAKLOAD5000          RUN
+------------------------
+        1.25 A
+
+SET 1.50A   PRESS=MENU
 ~~~
 
 - DRAW = measured current from the shunt
@@ -185,7 +182,7 @@ The computer dashboard can:
 
 Local LCD/encoder control and HTML control can both be used with the same firmware.
 
-If the computer changes the setpoint, the LCD updates automatically.
+If the computer changes the setpoint, the OLED updates automatically.
 
 If the rotary encoder changes the setpoint, the new value is used by the same closed-loop controller.
 
@@ -232,13 +229,13 @@ Use a multimeter or laboratory power supply to monitor input voltage separately.
 ## Basic standalone operating procedure
 
 1. Power the load control electronics from the separate 9 V supply.
-2. The LCD should show MAKLOAD5000 during startup.
+2. The OLED should show MAKLOAD5000 during startup.
 3. Connect the DC source being tested.
 4. Make sure polarity is correct.
 5. Rotate the encoder to choose the current.
 6. Press the encoder to enter the menu.
 7. Select LOAD ON.
-8. Watch the measured current on the LCD.
+8. Watch the measured current on the OLED.
 9. Use LOAD OFF when finished.
 
 Start at a low current and increase slowly.
