@@ -1,6 +1,6 @@
 /*
   Makload5000 DC Electronic Load Controller
-  Stable PC control + standalone 16x2 LCD / rotary encoder control
+  Stable PC control + standalone 0.96" SSD1306 OLED / rotary encoder control
 
   Board target:
     5 V Arduino Pro Micro / ATmega32U4
@@ -15,24 +15,17 @@
                          +---- 10uF --- GND
                               + toward control node
 
-  16x2 PARALLEL LCD:
-    RS -> D4
-    E  -> D5
-    D4 -> D6
-    D5 -> D7
-    D6 -> D8
-    D7 -> D10
-    RW -> GND
-    VSS -> GND
-    VDD -> 5V
-    VO -> middle pin of 10k contrast potentiometer
-    LCD backlight A -> 5V (through resistor if your LCD board needs one)
-    LCD backlight K -> GND
+  0.96" SSD1306 128x64 I2C OLED:
+    GND -> GND
+    VCC -> 5V
+    SDA -> D2
+    SCL -> D3
+    I2C address -> 0x3C
 
   ROTARY ENCODER:
-    CLK -> D2
-    DT  -> D3
-    SW  -> D15
+    CLK -> D4
+    DT  -> D5
+    SW  -> D6
     GND -> GND
     VCC -> 5V for a KY-040 module
 
@@ -59,7 +52,8 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 #include <math.h>
-#include <LiquidCrystal.h>
+#include <Wire.h>
+#include <U8g2lib.h>
 
 // =====================================================
 // LOAD PINS
@@ -68,30 +62,21 @@ const uint8_t CURRENT_PIN = A0;
 const uint8_t PWM_PIN = 9;
 
 // =====================================================
-// LCD PINS - 16x2 parallel, 4-bit mode
+// 0.96" SSD1306 128x64 I2C OLED
+// Pro Micro hardware I2C: SDA=D2, SCL=D3
 // =====================================================
-const uint8_t LCD_RS = 4;
-const uint8_t LCD_EN = 5;
-const uint8_t LCD_D4 = 6;
-const uint8_t LCD_D5 = 7;
-const uint8_t LCD_D6 = 8;
-const uint8_t LCD_D7 = 10;
-
-LiquidCrystal lcd(
-  LCD_RS,
-  LCD_EN,
-  LCD_D4,
-  LCD_D5,
-  LCD_D6,
-  LCD_D7
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(
+  U8G2_R0,
+  U8X8_PIN_NONE
 );
 
 // =====================================================
 // ROTARY ENCODER PINS
+// D2/D3 are reserved for the OLED I2C bus.
 // =====================================================
-const uint8_t ENC_CLK = 2;
-const uint8_t ENC_DT  = 3;
-const uint8_t ENC_SW  = 15;
+const uint8_t ENC_CLK = 4;
+const uint8_t ENC_DT  = 5;
+const uint8_t ENC_SW  = 6;
 
 // Set true if your encoder turns backwards.
 const bool ENCODER_REVERSED = false;
@@ -204,9 +189,9 @@ bool lastButtonReading = HIGH;
 bool stableButtonState = HIGH;
 unsigned long lastButtonChangeMs = 0;
 
-unsigned long lastLcdMs = 0;
+unsigned long lastDisplayMs = 0;
 
-const unsigned long LCD_REFRESH_MS = 180;
+const unsigned long DISPLAY_REFRESH_MS = 180;
 const unsigned long BUTTON_DEBOUNCE_MS = 25;
 const unsigned long ENCODER_DEBOUNCE_MS = 2;
 
@@ -764,7 +749,7 @@ void handleLocalControls() {
     }
 
     // Refresh LCD immediately after rotation.
-    lastLcdMs = 0;
+    lastDisplayMs = 0;
   }
 
   if (!encoderButtonPressed()) {
@@ -813,111 +798,151 @@ void handleLocalControls() {
     uiScreen = UI_MENU;
   }
 
-  lastLcdMs = 0;
+  lastDisplayMs = 0;
 }
 
 // =====================================================
-// LCD HELPERS
+// OLED DISPLAY
 // =====================================================
-void clearLcdRow(uint8_t row) {
-  lcd.setCursor(0, row);
-  lcd.print(F("                "));
-  lcd.setCursor(0, row);
+void drawStatusBar() {
+  oled.setFont(u8g2_font_6x12_tf);
+  oled.setCursor(0, 10);
+  oled.print(F("MAKLOAD5000"));
+
+  if (safetyTrip) {
+    oled.setCursor(98, 10);
+    oled.print(F("TRIP"));
+  }
+  else if (loadEnabled) {
+    oled.setCursor(104, 10);
+    oled.print(F("RUN"));
+  }
+  else {
+    oled.setCursor(104, 10);
+    oled.print(F("OFF"));
+  }
+
+  oled.drawHLine(0, 13, 128);
 }
 
 void drawHomeScreen() {
-  clearLcdRow(0);
-  lcd.print(F("DRAW "));
-  lcd.print(measuredCurrentA, 2);
-  lcd.print(F("A"));
+  drawStatusBar();
 
-  clearLcdRow(1);
-  lcd.print(F("SET "));
-  lcd.print(requestedCurrentA, 2);
-  lcd.print(F("A "));
+  // Large actual current reading
+  oled.setFont(u8g2_font_logisoso24_tf);
+  oled.setCursor(3, 42);
+  oled.print(measuredCurrentA, 2);
 
-  if (safetyTrip) {
-    lcd.print(F("TRIP"));
-  }
-  else if (loadEnabled) {
-    lcd.print(F("RUN"));
-  }
-  else {
-    lcd.print(F("OFF"));
-  }
+  oled.setFont(u8g2_font_6x12_tf);
+  oled.print(F(" A"));
+
+  oled.setCursor(3, 61);
+  oled.print(F("SET "));
+  oled.print(requestedCurrentA, 2);
+  oled.print(F("A  PRESS=MENU"));
 }
 
 void drawMenuScreen() {
-  clearLcdRow(0);
-  lcd.print(F("MENU "));
-  lcd.print(menuIndex + 1);
-  lcd.print('/');
-  lcd.print(MENU_COUNT);
+  oled.setFont(u8g2_font_6x12_tf);
+  oled.setCursor(0, 10);
+  oled.print(F("MENU "));
+  oled.print(menuIndex + 1);
+  oled.print('/');
+  oled.print(MENU_COUNT);
 
-  clearLcdRow(1);
-  lcd.print('>');
+  oled.drawHLine(0, 13, 128);
+
+  oled.setFont(u8g2_font_7x14B_tf);
+  oled.setCursor(2, 37);
+  oled.print('>');
 
   switch (menuIndex) {
     case 0:
-      if (loadEnabled) {
-        lcd.print(F("LOAD OFF"));
-      }
-      else {
-        lcd.print(F("LOAD ON"));
-      }
+      oled.setCursor(14, 37);
+      oled.print(loadEnabled ? F("LOAD OFF") : F("LOAD ON"));
       break;
 
     case 1:
-      lcd.print(F("SHUNT INFO"));
+      oled.setCursor(14, 37);
+      oled.print(F("SHUNT INFO"));
       break;
 
     case 2:
-      lcd.print(F("CONTROL INFO"));
+      oled.setCursor(14, 37);
+      oled.print(F("CONTROL"));
       break;
 
     case 3:
-      lcd.print(F("CLEAR TRIP"));
+      oled.setCursor(14, 37);
+      oled.print(F("CLEAR TRIP"));
       break;
 
     case 4:
     default:
-      lcd.print(F("BACK"));
+      oled.setCursor(14, 37);
+      oled.print(F("BACK"));
       break;
   }
+
+  oled.setFont(u8g2_font_5x8_tf);
+  oled.setCursor(2, 60);
+  oled.print(F("ROTATE=SELECT  PRESS=OK"));
 }
 
 void drawShuntInfoScreen() {
-  clearLcdRow(0);
-  lcd.print(F("SHUNT "));
-  lcd.print(shuntVoltageV, 3);
-  lcd.print(F("V"));
+  oled.setFont(u8g2_font_6x12_tf);
+  oled.setCursor(0, 10);
+  oled.print(F("SHUNT / CURRENT"));
+  oled.drawHLine(0, 13, 128);
 
-  clearLcdRow(1);
-  lcd.print(F("CURR  "));
-  lcd.print(measuredCurrentA, 2);
-  lcd.print(F("A"));
+  oled.setCursor(2, 31);
+  oled.print(F("Shunt: "));
+  oled.print(shuntVoltageV, 4);
+  oled.print(F(" V"));
+
+  oled.setCursor(2, 47);
+  oled.print(F("Draw : "));
+  oled.print(measuredCurrentA, 3);
+  oled.print(F(" A"));
+
+  oled.setFont(u8g2_font_5x8_tf);
+  oled.setCursor(2, 61);
+  oled.print(F("PRESS = BACK"));
 }
 
 void drawControlInfoScreen() {
-  clearLcdRow(0);
-  lcd.print(F("CTRL "));
-  lcd.print(controlVoltageV, 3);
-  lcd.print(F("V"));
+  oled.setFont(u8g2_font_6x12_tf);
+  oled.setCursor(0, 10);
+  oled.print(F("CONTROL OUTPUT"));
+  oled.drawHLine(0, 13, 128);
 
-  clearLcdRow(1);
-  lcd.print(F("PWM "));
-  lcd.print(pwmValue);
-  lcd.print(F("/255"));
+  oled.setCursor(2, 31);
+  oled.print(F("CTRL: "));
+  oled.print(controlVoltageV, 4);
+  oled.print(F(" V"));
+
+  oled.setCursor(2, 47);
+  oled.print(F("PWM : "));
+  oled.print(pwmValue);
+  oled.print(F(" / "));
+  oled.print(MAX_PWM);
+
+  oled.setFont(u8g2_font_5x8_tf);
+  oled.setCursor(2, 61);
+  oled.print(F("PRESS = BACK"));
 }
 
-void updateLcd() {
+void updateDisplay() {
   unsigned long now = millis();
 
-  if (lastLcdMs != 0 && (now - lastLcdMs) < LCD_REFRESH_MS) {
+  if (lastDisplayMs != 0 &&
+      (now - lastDisplayMs) < DISPLAY_REFRESH_MS) {
     return;
   }
 
-  lastLcdMs = now;
+  lastDisplayMs = now;
+
+  oled.clearBuffer();
 
   switch (uiScreen) {
     case UI_HOME:
@@ -936,6 +961,8 @@ void updateLcd() {
       drawControlInfoScreen();
       break;
   }
+
+  oled.sendBuffer();
 }
 
 // =====================================================
@@ -953,12 +980,20 @@ void setup() {
   lastButtonReading = digitalRead(ENC_SW);
   stableButtonState = lastButtonReading;
 
-  lcd.begin(16, 2);
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(F("MAKLOAD5000"));
-  lcd.setCursor(0, 1);
-  lcd.print(F("Starting..."));
+  Wire.begin();
+
+  // U8g2 uses the 8-bit form of the I2C address.
+  oled.setI2CAddress(0x3C * 2);
+  oled.begin();
+
+  oled.clearBuffer();
+  oled.setFont(u8g2_font_7x14B_tf);
+  oled.setCursor(15, 28);
+  oled.print(F("MAKLOAD5000"));
+  oled.setFont(u8g2_font_6x12_tf);
+  oled.setCursor(30, 48);
+  oled.print(F("Starting..."));
+  oled.sendBuffer();
 
   analogReference(INTERNAL);
 
@@ -977,7 +1012,7 @@ void setup() {
   sendCalibration();
 
   uiScreen = UI_HOME;
-  lastLcdMs = 0;
+  lastDisplayMs = 0;
 }
 
 void loop() {
@@ -987,7 +1022,7 @@ void loop() {
 
   controlCurrent();
 
-  updateLcd();
+  updateDisplay();
 
   sendTelemetry();
 }
